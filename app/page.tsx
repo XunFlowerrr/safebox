@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -67,9 +67,8 @@ export default function DashboardPage() {
   const [armed, setArmed] = useState<boolean>(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [chartLoading, setChartLoading] = useState<boolean>(false);
   const [sensorData, setSensorData] = useState<
-    Array<{ t: string; temp: number; vib: number }>
+    Array<{ t: string; tilt: number; vib: number }>
   >([]);
 
   useEffect(() => {
@@ -92,16 +91,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadCharts = async () => {
-      setChartLoading(true);
       try {
         const res = await fetch("/api/charts");
-        const data: Array<{ t: string; temp: number; vib: number }> =
+        const data: Array<{ t: string; tilt: number; vib: number }> =
           await res.json();
         setSensorData(data);
       } catch (e) {
         console.error(e);
-      } finally {
-        setChartLoading(false);
       }
     };
     loadCharts();
@@ -135,15 +131,15 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>Sensor Trends</CardTitle>
             <CardDescription>
-              Temperature and vibration over time (mock)
+              Tilt and vibration over time (mock)
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <ChartContainer
                 config={{
-                  temp: {
-                    label: "Temperature (°C)",
+                  tilt: {
+                    label: "Tilt (°)",
                     color: "hsl(var(--primary))",
                   },
                 }}
@@ -152,12 +148,12 @@ export default function DashboardPage() {
                 <AreaChart data={sensorData} margin={{ left: 8, right: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="t" hide tickLine axisLine />
-                  <YAxis width={32} />
+                  <YAxis width={32} domain={[0, 50]} />
                   <Area
                     type="monotone"
-                    dataKey="temp"
-                    stroke="var(--color-temp)"
-                    fill="color-mix(in oklab, var(--color-temp) 20%, transparent)"
+                    dataKey="tilt"
+                    stroke="var(--color-tilt)"
+                    fill="color-mix(in oklab, var(--color-tilt) 20%, transparent)"
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
