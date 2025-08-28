@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model SafeStatus {
+  id        Int      @id @default(autoincrement())
+  status    String   // "open", "lock", "unlock"
+  timestamp DateTime @default(now())
+  safeId    String   @default("default")
+}
+
+model SensorLog {
+  id          Int      @id @default(autoincrement())
+  sensorType  String   // "vibration", "accelerometer", "magnetic_hall", "buzzer", "temperature", "battery"
+  value       Float
+  unit        String?
+  timestamp   DateTime @default(now())
+  safeId      String   @default("default")
+}
+
+// Chart data aggregation for better performance
+model ChartData {
+  id        Int      @id @default(autoincrement())
+  hour      Int      // 0-23
+  date      String   // YYYY-MM-DD format
+  tilt      Float    @default(0)
+  vibration Float    @default(0)
+  safeId    String   @default("default")
+  timestamp DateTime @default(now())
+  
+  @@unique([hour, date, safeId])
+}
+
+// Event logs for system events
+model EventLog {
+  id        Int      @id @default(autoincrement())
+  type      String   // "Hit", "Tilt", "Open", "Vibration", "Arm", "Disarm", etc.
+  content   String
+  severity  String   @default("info") // "info", "warning", "error"
+  timestamp DateTime @default(now())
+  safeId    String   @default("default")
+}

@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=file:./dev.db
+    volumes:
+      - backend_data:/app/prisma
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/dashboard"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  backend_data:
+
+networks:
+  iot-network:
+    driver: bridge

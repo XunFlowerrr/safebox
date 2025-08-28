@@ -1,20 +1,30 @@
-import { NextResponse } from "next/server"
+import { NextResponse } from "next/server";
 
 export type Health = {
-  status: "OK" | "WARN" | "ERROR"
-  lastHeartbeat: string // ISO timestamp
-}
+  status: "OK" | "WARN" | "ERROR";
+  lastHeartbeat: string; // ISO timestamp
+};
 
-function mockHealth(): Health {
-  const now = new Date()
-  const minutes = now.getMinutes()
-  const status: Health["status"] = minutes % 15 === 0 ? "WARN" : "OK"
-  return {
-    status,
-    lastHeartbeat: new Date(now.getTime() - (minutes % 5) * 60_000).toISOString(),
-  }
-}
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
 
 export async function GET() {
-  return NextResponse.json(mockHealth())
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/health`);
+
+    if (!response.ok) {
+      throw new Error(`Backend returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    // Fallback to error status if backend is unreachable
+    return NextResponse.json(
+      {
+        status: "ERROR",
+        lastHeartbeat: new Date().toISOString(),
+      } as Health,
+      { status: 500 }
+    );
+  }
 }
