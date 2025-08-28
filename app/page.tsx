@@ -164,7 +164,8 @@ export default function DashboardPage() {
                 config={{
                   vib: {
                     label: "Vibration",
-                    color: "hsl(var(--muted-foreground))",
+                    // Use a high-contrast chart color token
+                    color: "var(--chart-2)",
                   },
                 }}
                 className="h-64"
@@ -177,7 +178,8 @@ export default function DashboardPage() {
                     type="monotone"
                     dataKey="vib"
                     stroke="var(--color-vib)"
-                    dot={false}
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
                   />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
