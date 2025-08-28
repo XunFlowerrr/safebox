@@ -1,103 +1,240 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useMemo, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  BellRing,
+  DoorOpen,
+  Ruler,
+  Shield,
+  Siren,
+  Thermometer,
+  WifiOff,
+  Wrench,
+  Zap,
+} from "lucide-react";
+
+type LogEntry = { type: string; content: string };
+
+const typeIcon: Record<string, React.ComponentType<{ className?: string }>> = {
+  Hit: Zap,
+  Tilt: Ruler,
+  "Open with alarm": Siren,
+  Open: DoorOpen,
+  Vibration: Zap,
+  Temperature: Thermometer,
+  Battery: BellRing,
+  Network: WifiOff,
+  Firmware: Wrench,
+  Arm: Shield,
+  Disarm: Shield,
+};
+
+export default function DashboardPage() {
+  const [armed, setArmed] = useState<boolean>(true);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/logs");
+        const data: LogEntry[] = await res.json();
+        setLogs(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const sensorData = useMemo(
+    () =>
+      Array.from({ length: 24 }).map((_, i) => ({
+        t: `${i}:00`,
+        temp: 24 + Math.sin(i / 3) * 3 + (i % 5 === 0 ? 1 : 0),
+        vib: Math.max(
+          0,
+          Math.round(2 + Math.cos(i / 2) * 1.5 + (i % 7 === 0 ? 3 : 0))
+        ),
+      })),
+    []
+  );
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="font-sans min-h-screen p-6 md:p-10 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Safety Box Dashboard</h1>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Armed</span>
+          <Switch
+            checked={armed}
+            onCheckedChange={setArmed}
+            aria-label="Arm safety"
+          />
+          <Badge
+            className={
+              armed ? "bg-green-600 text-white" : "bg-yellow-500 text-black"
+            }
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            {armed ? "ON" : "OFF"}
+          </Badge>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Sensor Trends</CardTitle>
+            <CardDescription>
+              Temperature and vibration over time (mock)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <ChartContainer
+                config={{
+                  temp: {
+                    label: "Temperature (°C)",
+                    color: "hsl(var(--primary))",
+                  },
+                }}
+                className="h-64"
+              >
+                <AreaChart data={sensorData} margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="t" hide tickLine axisLine />
+                  <YAxis width={32} />
+                  <Area
+                    type="monotone"
+                    dataKey="temp"
+                    stroke="var(--color-temp)"
+                    fill="color-mix(in oklab, var(--color-temp) 20%, transparent)"
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                </AreaChart>
+              </ChartContainer>
+
+              <ChartContainer
+                config={{
+                  vib: {
+                    label: "Vibration",
+                    color: "hsl(var(--muted-foreground))",
+                  },
+                }}
+                className="h-64"
+              >
+                <LineChart data={sensorData} margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="t" hide tickLine axisLine />
+                  <YAxis width={32} />
+                  <Line
+                    type="monotone"
+                    dataKey="vib"
+                    stroke="var(--color-vib)"
+                    dot={false}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                </LineChart>
+              </ChartContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Activity</CardTitle>
+            <CardDescription>Live events from the safety box</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-64">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">Type</TableHead>
+                    <TableHead>Content</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-muted-foreground">
+                        Loading…
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!loading && logs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-muted-foreground">
+                        No events
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!loading &&
+                    logs.map((log, idx) => {
+                      const Icon = typeIcon[log.type] ?? BellRing;
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-xs font-medium">
+                                {log.type}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="whitespace-pre-wrap">
+                            {log.content}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
