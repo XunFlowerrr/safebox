@@ -67,6 +67,10 @@ export default function DashboardPage() {
   const [armed, setArmed] = useState<boolean>(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [chartLoading, setChartLoading] = useState<boolean>(false);
+  const [sensorData, setSensorData] = useState<
+    Array<{ t: string; temp: number; vib: number }>
+  >([]);
 
   useEffect(() => {
     const load = async () => {
@@ -86,18 +90,24 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
-  const sensorData = useMemo(
-    () =>
-      Array.from({ length: 24 }).map((_, i) => ({
-        t: `${i}:00`,
-        temp: 24 + Math.sin(i / 3) * 3 + (i % 5 === 0 ? 1 : 0),
-        vib: Math.max(
-          0,
-          Math.round(2 + Math.cos(i / 2) * 1.5 + (i % 7 === 0 ? 3 : 0))
-        ),
-      })),
-    []
-  );
+  useEffect(() => {
+    const loadCharts = async () => {
+      setChartLoading(true);
+      try {
+        const res = await fetch("/api/charts");
+        const data: Array<{ t: string; temp: number; vib: number }> =
+          await res.json();
+        setSensorData(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setChartLoading(false);
+      }
+    };
+    loadCharts();
+    const id = setInterval(loadCharts, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div className="font-sans min-h-screen p-6 md:p-10 space-y-6">
