@@ -1,0 +1,11 @@
+Model Information:
+* title:	Cardboard Box
+* source:	https://sketchfab.com/3d-models/cardboard-box-4e622ef1a09c43e28a49d9fa37f9eeee
+* author:	Pricey1600 (https://sketchfab.com/Pricey1600)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Cardboard Box" (https://sketchfab.com/3d-models/cardboard-box-4e622ef1a09c43e28a49d9fa37f9eeee) by Pricey1600 (https://sketchfab.com/Pricey1600) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
