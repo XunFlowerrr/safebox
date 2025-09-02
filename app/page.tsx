@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import * as THREE from "three";
 import {
   Card,
   CardContent,
@@ -167,14 +168,23 @@ export default function DashboardPage() {
 
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
         <Card className='lg:col-span-2'>
-          <CardHeader>
+          <CardHeader className='absolute w-[20rem]'>
             <CardTitle>Safe Preview</CardTitle>
             <CardDescription>3D Preivew of SafeBox</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Canvas>
+          <CardContent className='h-full w-full'>
+            <Canvas className='h-full w-full'>
               <ambientLight intensity={2.5} />
-              <Model />
+              <directionalLight
+                color={new THREE.Color(201, 149, 37)}
+                position={[-2, 5, -5]}
+                intensity={0.01}
+              />
+              <Model
+                position={[0, -0.5, 0]}
+                rotation={[0, 2, 0]}
+                scale={[5, 5, 5]}
+              />
               <OrbitControls />
             </Canvas>
           </CardContent>
