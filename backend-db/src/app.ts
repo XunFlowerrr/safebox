@@ -25,6 +25,13 @@ const statusSchema = z.object({
   status: z.enum(["open", "lock", "unlock"]),
 });
 
+const rotationDataSchema = z.object({
+  alpha: z.number(),
+  beta: z.number(),
+  gamma: z.number(),
+  safeId: z.string(),
+});
+
 // Additional validation schemas for new endpoints
 const healthResponseSchema = z.object({
   status: z.enum(["OK", "WARN", "ERROR"]),
@@ -117,6 +124,67 @@ app.get("/api/safe-status", async (req: Request, res: Response) => {
   }
 });
 
+// POST rotation data
+app.post("/api/rotation-data", async (req: Request, res: Response) => {
+  try {
+    const data = rotationDataSchema.parse(req.body);
+
+    const rotationLog = await prisma.rotationLog.create({
+      data: {
+        alpha: data.alpha,
+        beta: data.beta,
+        gamma: data.gamma,
+        safeId: data.safeId,
+      },
+    });
+
+    res.json({ success: true, data: rotationLog });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// GET rotation logs
+app.get("/api/rotation-data", async (req: Request, res: Response) => {
+  try {
+    const { safeId, limit = "50" } = req.query;
+
+    const logs = await prisma.rotationLog.findMany({
+      where: safeId ? { safeId: safeId as string } : {},
+      orderBy: { timestamp: "desc" },
+      take: parseInt(limit as string),
+    });
+    res.json({ success: true, data: logs });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// GET latest rotation data
+app.get("/api/rotation-data/latest", async (req: Request, res: Response) => {
+  try {
+    const { safeId = "safe-001" } = req.query;
+
+    const latestRotation = await prisma.rotationLog.findFirst({
+      where: { safeId: safeId as string },
+      orderBy: { timestamp: "desc" },
+    });
+
+    res.json({ success: true, data: latestRotation });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 // Health check endpoint
 app.get("/api/health", async (req: Request, res: Response) => {
   try {
@@ -170,7 +238,7 @@ app.get("/api/charts", async (req: Request, res: Response) => {
           safeId: safeId as string,
           sensorType: "tilt",
         },
-        orderBy: { timestamp: "asc" },
+        orderBy: { timestamp: "desc" },
         take: 30,
       }),
       prisma.sensorLog.findMany({
@@ -178,7 +246,7 @@ app.get("/api/charts", async (req: Request, res: Response) => {
           safeId: safeId as string,
           sensorType: "vibration",
         },
-        orderBy: { timestamp: "asc" },
+        orderBy: { timestamp: "desc" },
         take: 30,
       }),
     ]);
@@ -195,7 +263,8 @@ app.get("/api/charts", async (req: Request, res: Response) => {
 
     let minTime = new Date();
     sensorData.forEach((data: any) => {
-      const timestamp = new Date(data.timestamp);
+      const raw_timestamp = new Date(data.timestamp);
+      const timestamp = new Date(raw_timestamp.getTime() + 7 * 60 * 60 * 1000); // Convert to Thai time (UTC+7)
       const timeKey = timestamp.toISOString();
       minTime = timestamp < minTime ? timestamp : minTime;
       if (!secondlyData[timeKey]) {
@@ -238,6 +307,11 @@ app.get("/api/charts", async (req: Request, res: Response) => {
         vib: vib,
       });
     }
+
+    // reverst order chartPoints
+    chartPoints.sort(
+      (a, b) => new Date(a.t).getTime() - new Date(b.t).getTime()
+    );
 
     console.log("Processed chart data points:", chartPoints);
 

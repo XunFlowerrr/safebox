@@ -46,3 +46,13 @@ model EventLog {
   timestamp DateTime @default(now())
   safeId    String   @default("default")
 }
+
+// Logs for safe rotation
+model RotationLog {
+  id        Int      @id @default(autoincrement())
+  alpha     Float
+  beta      Float
+  gamma     Float
+  timestamp DateTime @default(now())
+  safeId    String   @default("default")
+} 

@@ -124,7 +124,7 @@ export default function DashboardPage() {
       }
     };
     loadCharts();
-    const id = setInterval(loadCharts, 30_000);
+    const id = setInterval(loadCharts, 5_000);
     return () => clearInterval(id);
   }, []);
 
