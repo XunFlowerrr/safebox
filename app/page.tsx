@@ -47,6 +47,9 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
+import { Canvas } from "@react-three/fiber";
+import { Model } from "@/components/box-model";
+import { OrbitControls } from "@react-three/drei";
 
 type LogEntry = { type: string; content: string };
 
@@ -165,6 +168,74 @@ export default function DashboardPage() {
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
         <Card className='lg:col-span-2'>
           <CardHeader>
+            <CardTitle>Safe Preview</CardTitle>
+            <CardDescription>3D Preivew of SafeBox</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Canvas>
+              <ambientLight intensity={2.5} />
+              <Model />
+              <OrbitControls />
+            </Canvas>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Activity</CardTitle>
+            <CardDescription>Live events from the safety box</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className='h-64'>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className='w-10'>Type</TableHead>
+                    <TableHead>Content</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={2} className='text-muted-foreground'>
+                        Loading…
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!loading && logs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className='text-muted-foreground'>
+                        No events
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!loading &&
+                    logs.map((log, idx) => {
+                      const Icon = typeIcon[log.type] ?? BellRing;
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <div className='flex items-center gap-2'>
+                              <Icon className='h-4 w-4 text-muted-foreground' />
+                              <span className='text-xs font-medium'>
+                                {log.type}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className='whitespace-pre-wrap'>
+                            {log.content}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card className='lg:col-span-2'>
+          <CardHeader>
             <CardTitle>Sensor Trends</CardTitle>
             <CardDescription>
               Tilt and vibration over time (mock)
@@ -225,61 +296,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Live events from the safety box</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className='h-64'>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className='w-10'>Type</TableHead>
-                    <TableHead>Content</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading && (
-                    <TableRow>
-                      <TableCell colSpan={2} className='text-muted-foreground'>
-                        Loading…
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!loading && logs.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={2} className='text-muted-foreground'>
-                        No events
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!loading &&
-                    logs.map((log, idx) => {
-                      const Icon = typeIcon[log.type] ?? BellRing;
-                      return (
-                        <TableRow key={idx}>
-                          <TableCell>
-                            <div className='flex items-center gap-2'>
-                              <Icon className='h-4 w-4 text-muted-foreground' />
-                              <span className='text-xs font-medium'>
-                                {log.type}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className='whitespace-pre-wrap'>
-                            {log.content}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        <Card className='lg:col-span-3'>
+        <Card className='lg:col-span-1'>
           <CardHeader className='flex flex-row items-start justify-between'>
             <div>
               <CardTitle>Health Status</CardTitle>
