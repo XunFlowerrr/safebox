@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/app.js",
-    "dev": "ts-node src/app.ts",
+    "dev": "nodemon --exec ts-node src/app.ts",
+    "dev:watch": "nodemon src/app.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:seed": "ts-node prisma/seed.ts",
@@ -25,6 +26,7 @@
     "@types/node": "^20.5.0",
     "typescript": "^5.1.6",
     "ts-node": "^10.9.1",
-    "prisma": "^5.2.0"
+    "prisma": "^5.2.0",
+    "nodemon": "^3.0.1"
   }
 }

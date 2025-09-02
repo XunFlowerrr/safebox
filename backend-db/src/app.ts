@@ -54,6 +54,7 @@ app.post("/api/sensor-data", async (req: Request, res: Response) => {
         safeId: data.safeId,
       },
     });
+
     res.json({ success: true, data: sensorLog });
   } catch (error) {
     res.status(400).json({
@@ -116,37 +117,6 @@ app.get("/api/safe-status", async (req: Request, res: Response) => {
   }
 });
 
-// GET dashboard data
-app.get("/api/dashboard", async (req: Request, res: Response) => {
-  try {
-    const [currentStatus, recentLogs]: [
-      Awaited<ReturnType<typeof prisma.safeStatus.findFirst>>,
-      Awaited<ReturnType<typeof prisma.sensorLog.findMany>>
-    ] = await Promise.all([
-      prisma.safeStatus.findFirst({
-        orderBy: { timestamp: "desc" },
-      }),
-      prisma.sensorLog.findMany({
-        orderBy: { timestamp: "desc" },
-        take: 10,
-      }),
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        status: currentStatus,
-        recentLogs: recentLogs,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
 // Health check endpoint
 app.get("/api/health", async (req: Request, res: Response) => {
   try {
@@ -192,109 +162,84 @@ app.get("/api/health", async (req: Request, res: Response) => {
 app.get("/api/charts", async (req: Request, res: Response) => {
   try {
     const { safeId = "safe-001", hours = "24" } = req.query;
-    const hoursBack = parseInt(hours as string);
 
-    // First try to get pre-aggregated chart data
-    const today = new Date().toISOString().split("T")[0];
-    const chartData = await prisma.chartData.findMany({
-      where: {
-        safeId: safeId as string,
-        date: today,
-      },
-      orderBy: { hour: "asc" },
-    });
-
-    // If we have pre-aggregated data, use it
-    if (chartData.length > 0) {
-      const response = chartData.map(
-        (data: { hour: any; tilt: any; vibration: any }) => ({
-          t: `${data.hour}:00`,
-          tilt: data.tilt,
-          vib: data.vibration,
-        })
-      );
-      return res.json(response);
-    }
-
-    // Fallback to calculating from sensor logs
-    const endTime = new Date();
-    const startTime = new Date(endTime.getTime() - hoursBack * 60 * 60 * 1000);
-
-    const sensorData = await prisma.sensorLog.findMany({
-      where: {
-        safeId: safeId as string,
-        timestamp: {
-          gte: startTime,
-          lte: endTime,
+    // Query sensor data separately for each sensor type
+    const [tiltData, vibrationData] = await Promise.all([
+      prisma.sensorLog.findMany({
+        where: {
+          safeId: safeId as string,
+          sensorType: "tilt",
         },
-        sensorType: {
-          in: ["accelerometer", "vibration"],
+        orderBy: { timestamp: "asc" },
+        take: 30,
+      }),
+      prisma.sensorLog.findMany({
+        where: {
+          safeId: safeId as string,
+          sensorType: "vibration",
         },
-      },
-      orderBy: { timestamp: "asc" },
-    });
+        orderBy: { timestamp: "asc" },
+        take: 30,
+      }),
+    ]);
 
-    // Group data by hour and calculate averages
-    const hourlyData: Record<string, { tilt: number[]; vib: number[] }> = {};
+    // Combine the sensor data
+    const sensorData = [...tiltData, ...vibrationData];
 
+    console.log("Raw sensor data fetched:", {
+      tilt: tiltData.length,
+      vibration: vibrationData.length,
+      total: sensorData.length,
+    }); // Group data by second and calculate averages
+    const secondlyData: Record<string, { tilt: number[]; vib: number[] }> = {};
+
+    let minTime = new Date();
     sensorData.forEach((data: any) => {
-      const hour = data.timestamp.getHours();
-      const timeKey = `${hour}:00`;
-
-      if (!hourlyData[timeKey]) {
-        hourlyData[timeKey] = { tilt: [], vib: [] };
+      const timestamp = new Date(data.timestamp);
+      const timeKey = timestamp.toISOString();
+      minTime = timestamp < minTime ? timestamp : minTime;
+      if (!secondlyData[timeKey]) {
+        secondlyData[timeKey] = { tilt: [], vib: [] };
       }
-
-      if (data.sensorType === "accelerometer") {
-        // Convert accelerometer reading to tilt angle (matches mock pattern)
-        const tiltAngle = Math.min(45, Math.abs(data.value) * 10);
-        hourlyData[timeKey].tilt.push(tiltAngle);
+      if (data.sensorType === "tilt") {
+        // Use raw accelerometer value
+        secondlyData[timeKey].tilt.push(parseFloat(data.value.toFixed(2)));
       } else if (data.sensorType === "vibration") {
-        hourlyData[timeKey].vib.push(data.value);
+        secondlyData[timeKey].vib.push(parseFloat(data.value.toFixed(2)));
       }
     });
 
-    // Create chart data points matching the mock pattern
+    console.log("Grouped secondly data:", secondlyData);
+
+    // Generate chart points for each second in the time range
     const chartPoints = [];
-    for (let i = 0; i < hoursBack; i++) {
-      const hour = (endTime.getHours() - hoursBack + i + 24) % 24;
-      const timeKey = `${hour}:00`;
 
-      // Use mock pattern if no real data
-      let tilt = 0;
-      let vib = 0;
+    for (const [timeKey, _] of Object.entries(secondlyData)) {
+      let tilt = null;
+      let vib = null;
 
-      if (hourlyData[timeKey]) {
+      if (secondlyData[timeKey]) {
         tilt =
-          hourlyData[timeKey].tilt.length > 0
-            ? hourlyData[timeKey].tilt.reduce((a, b) => a + b, 0) /
-              hourlyData[timeKey].tilt.length
-            : 0;
+          secondlyData[timeKey].tilt.length > 0
+            ? secondlyData[timeKey].tilt.reduce((a, b) => a + b, 0) /
+              secondlyData[timeKey].tilt.length
+            : null;
 
         vib =
-          hourlyData[timeKey].vib.length > 0
-            ? hourlyData[timeKey].vib.reduce((a, b) => a + b, 0) /
-              hourlyData[timeKey].vib.length
-            : 0;
-      }
-
-      // If no data, generate mock pattern
-      if (tilt === 0 && vib === 0) {
-        const base = 10 + Math.abs(Math.sin(i / 3)) * 15;
-        const spike = i % 7 === 0 ? 12 : 0;
-        tilt = Math.min(45, Number((base + spike).toFixed(1)));
-        vib = Math.max(
-          0,
-          Math.round(2 + Math.cos(i / 2) * 1.5 + (i % 5 === 0 ? 3 : 0))
-        );
+          secondlyData[timeKey].vib.length > 0
+            ? secondlyData[timeKey].vib.reduce((a, b) => a + b, 0) /
+              secondlyData[timeKey].vib.length
+            : null;
       }
 
       chartPoints.push({
         t: timeKey,
-        tilt: Number(tilt.toFixed(1)),
-        vib: Math.round(vib),
+        tilt: tilt,
+        vib: vib,
       });
     }
+
+    console.log("Processed chart data points:", chartPoints);
 
     res.json(chartPoints);
   } catch (error) {

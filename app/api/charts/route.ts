@@ -22,11 +22,13 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
+    console.log("Fetched chart data:", data);
+
     return NextResponse.json(data);
   } catch (error) {
     // Fallback to mock data if backend is unreachable
-    const series = generateFallbackSeries(24);
-    return NextResponse.json(series);
+    // const series = generateFallbackSeries(24);
+    return NextResponse.json([]);
   }
 }
 
