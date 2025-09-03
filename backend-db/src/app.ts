@@ -62,6 +62,23 @@ app.post("/api/sensor-data", async (req: Request, res: Response) => {
       },
     });
 
+    if (data.sensorType === "vibration" && data.value > 3000) {
+      // if latest and new status is same skip
+      const latest = await prisma.eventLog.findFirst({
+        orderBy: { timestamp: "desc" },
+      });
+
+      if (latest && latest.type !== "Hit") {
+        await prisma.eventLog.create({
+          data: {
+            type: "Hit",
+            content: "Strong impact detected on panel.",
+            safeId: "safe-001",
+          },
+        });
+      }
+    }
+
     res.json({ success: true, data: sensorLog });
   } catch (error) {
     res.status(400).json({
@@ -95,11 +112,49 @@ app.post("/api/safe-status", async (req: Request, res: Response) => {
   try {
     const data = statusSchema.parse(req.body);
 
+    // if latest and new status is same skip
+    const latest = await prisma.safeStatus.findFirst({
+      orderBy: { timestamp: "desc" },
+    });
+
+    if (latest && latest.status === data.status) {
+      return res.json({ success: true, data: latest });
+    }
+
     const status = await prisma.safeStatus.create({
       data: {
         status: data.status,
       },
     });
+
+    if (data.status === "open") {
+      // Create an event log for opening while armed
+      await prisma.eventLog.create({
+        data: {
+          type: "Open with alarm",
+          content: "Lid opened while armed. Siren triggered.",
+          safeId: "safe-001",
+        },
+      });
+    } else if (data.status === "unlock") {
+      // Create an event log for disarming
+      await prisma.eventLog.create({
+        data: {
+          type: "Unlock",
+          content: "System disarmed(unlock) by user.",
+          safeId: "safe-001",
+        },
+      });
+    } else if (data.status === "lock") {
+      // Create an event log for arming
+      await prisma.eventLog.create({
+        data: {
+          type: "Lock",
+          content: "System armed.",
+          safeId: "safe-001",
+        },
+      });
+    }
     res.json({ success: true, data: status });
   } catch (error) {
     res.status(400).json({
@@ -197,16 +252,20 @@ app.get("/api/health", async (req: Request, res: Response) => {
     });
 
     const now = new Date();
-    let status: "OK" | "WARN" | "ERROR" = "OK";
+    let status = "OK";
+
+    const raw_status = await prisma.safeStatus.findFirst({
+      orderBy: { timestamp: "desc" },
+    });
+    status = raw_status
+      ? raw_status.status.charAt(0).toUpperCase() + raw_status.status.slice(1)
+      : "WARN";
 
     if (latestSensorData) {
       const timeDiff = now.getTime() - latestSensorData.timestamp.getTime();
-      const minutesSinceLastData = Math.floor(timeDiff / (1000 * 60));
+      const secondsSinceLastData = timeDiff / 1000;
 
-      // If no data in last 15 minutes, warn. If no data in last 30 minutes, error
-      if (minutesSinceLastData > 30) {
-        status = "ERROR";
-      } else if (minutesSinceLastData > 15) {
+      if (secondsSinceLastData > 10) {
         status = "WARN";
       }
     } else {
@@ -220,7 +279,7 @@ app.get("/api/health", async (req: Request, res: Response) => {
     });
   } catch (error) {
     res.status(500).json({
-      status: "ERROR",
+      status: "WARN",
       lastHeartbeat: new Date().toISOString(),
     });
   }
