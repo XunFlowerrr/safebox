@@ -293,7 +293,7 @@ export default function DashboardPage() {
                 <AreaChart data={tiltData} margin={{ left: 8, right: 8 }}>
                   <CartesianGrid strokeDasharray='3 3' />
                   <XAxis dataKey='t' hide tickLine axisLine />
-                  <YAxis width={32} domain={[0, 50]} />
+                  <YAxis width={32} domain={[0, 35]} />
                   <Area
                     type='monotone'
                     dataKey='tilt'
