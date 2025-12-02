@@ -284,7 +284,13 @@ export default function DataExplorerPage() {
         });
 
         const sensorChartData = Object.values(groupedData);
-        const sensorColors = ["#3b82f6", "#22c55e", "#f97316", "#a855f7", "#ef4444"];
+        const sensorColors = [
+          "#3b82f6",
+          "#22c55e",
+          "#f97316",
+          "#a855f7",
+          "#ef4444",
+        ];
         const sensorConfig: Record<string, { label: string; color: string }> =
           {};
         sensorTypes.forEach((type, idx) => {
@@ -298,7 +304,10 @@ export default function DataExplorerPage() {
 
         return (
           <ChartContainer config={sensorConfig} className="h-64 w-full">
-            <LineChart data={sensorChartData} margin={{ left: 8, right: 8, top: 10, bottom: 10 }}>
+            <LineChart
+              data={sensorChartData}
+              margin={{ left: 8, right: 8, top: 10, bottom: 10 }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="time"
@@ -314,8 +323,15 @@ export default function DataExplorerPage() {
                   dataKey={type}
                   stroke={sensorColors[idx % sensorColors.length]}
                   strokeWidth={2}
-                  dot={{ r: 4, fill: sensorColors[idx % sensorColors.length], strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: sensorColors[idx % sensorColors.length] }}
+                  dot={{
+                    r: 4,
+                    fill: sensorColors[idx % sensorColors.length],
+                    strokeWidth: 0,
+                  }}
+                  activeDot={{
+                    r: 6,
+                    fill: sensorColors[idx % sensorColors.length],
+                  }}
                   isAnimationActive={false}
                   name={type}
                 />
@@ -334,13 +350,16 @@ export default function DataExplorerPage() {
 
       case "rotation_data":
         const rotationConfig = {
-          alpha: { label: "Alpha (°)", color: "#3b82f6" },  // Blue
-          beta: { label: "Beta (°)", color: "#22c55e" },    // Green
-          gamma: { label: "Gamma (°)", color: "#f97316" },  // Orange
+          alpha: { label: "Alpha (°)", color: "#3b82f6" }, // Blue
+          beta: { label: "Beta (°)", color: "#22c55e" }, // Green
+          gamma: { label: "Gamma (°)", color: "#f97316" }, // Orange
         };
         return (
           <ChartContainer config={rotationConfig} className="h-64 w-full">
-            <LineChart data={chartData} margin={{ left: 8, right: 8, top: 10, bottom: 10 }}>
+            <LineChart
+              data={chartData}
+              margin={{ left: 8, right: 8, top: 10, bottom: 10 }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="time"
