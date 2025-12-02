@@ -59,7 +59,12 @@ import { OrbitControls } from "@react-three/drei";
 const MAX_DATA_POINTS = 30; // Maximum number of points to show in realtime chart
 const REALTIME_INTERVAL = 1000; // Update every 1 second
 
-type LogEntry = { type: string; content: string; timestamp?: string };
+type LogEntry = {
+  type: string;
+  content: string;
+  timestamp?: string;
+  severity?: string;
+};
 
 const typeIcon: Record<string, React.ComponentType<{ className?: string }>> = {
   Hit: Zap,
@@ -74,6 +79,7 @@ const typeIcon: Record<string, React.ComponentType<{ className?: string }>> = {
   Arm: Shield,
   Disarm: Shield,
   Lock: Shield,
+  "Abnormal tilt detected": Ruler,
 };
 
 export default function DashboardPage() {
@@ -88,7 +94,9 @@ export default function DashboardPage() {
   >([]);
   const [health, setHealth] = useState<{
     status: string;
+    safeStatus?: string;
     lastHeartbeat: string;
+    mqttConnected?: boolean;
   } | null>(null);
   const [resetTrigger, setResetTrigger] = useState(0);
   const [isLive, setIsLive] = useState(true);
@@ -311,12 +319,20 @@ export default function DashboardPage() {
                     logs.length > 0 &&
                     logs.map((log, idx) => {
                       const Icon = typeIcon[log.type] ?? BellRing;
+                      const severityColor =
+                        log.severity === "critical"
+                          ? "text-red-600"
+                          : log.severity === "warning"
+                          ? "text-yellow-600"
+                          : "text-muted-foreground";
                       return (
                         <TableRow key={idx}>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Icon className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-xs font-medium">
+                              <Icon className={`h-4 w-4 ${severityColor}`} />
+                              <span
+                                className={`text-xs font-medium ${severityColor}`}
+                              >
                                 {log.type}
                               </span>
                             </div>
@@ -465,16 +481,32 @@ export default function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <div className="text-xs text-muted-foreground">Status</div>
-                {health?.status !== "Lock" ? (
+                <div className="text-xs text-muted-foreground">Connection</div>
+                {health?.status === "OK" ? (
+                  <div className="mt-1 font-medium text-green-600">
+                    Connected
+                  </div>
+                ) : health?.status === "WARN" ? (
+                  <div className="mt-1 font-bold text-yellow-600">Unstable</div>
+                ) : (
                   <div className="mt-1 font-bold text-red-600">
-                    {health?.status ?? "-"}
+                    Disconnected
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Safe Status</div>
+                {health?.safeStatus &&
+                health.safeStatus !== "Lock" &&
+                health.safeStatus !== "Unknown" ? (
+                  <div className="mt-1 font-bold text-red-600">
+                    {health.safeStatus}
                   </div>
                 ) : (
                   <div className="mt-1 font-medium">
-                    {health?.status ?? "-"}
+                    {health?.safeStatus ?? "-"}
                   </div>
                 )}
               </div>

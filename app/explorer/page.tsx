@@ -563,6 +563,9 @@ export default function DataExplorerPage() {
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="Hit">Hit</SelectItem>
                       <SelectItem value="Tilt">Tilt</SelectItem>
+                      <SelectItem value="Abnormal tilt detected">
+                        Abnormal tilt detected
+                      </SelectItem>
                       <SelectItem value="Open with alarm">
                         Open with alarm
                       </SelectItem>
