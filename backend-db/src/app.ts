@@ -640,6 +640,150 @@ app.get("/api/logs", async (req: Request, res: Response) => {
   }
 });
 
+// Data Explorer endpoint - query any measurement with filters and sorting
+app.get("/api/explorer", async (req: Request, res: Response) => {
+  try {
+    const {
+      measurement = "sensor_data",
+      limit = "50",
+      offset = "0",
+      sortField = "timestamp",
+      sortDirection = "desc",
+      startTime,
+      endTime,
+      sensorType,
+      eventType,
+      safeId = "safe-001",
+    } = req.query;
+
+    // Determine time range
+    const start = startTime ? new Date(startTime as string).toISOString() : "-30d";
+    const stop = endTime ? new Date(endTime as string).toISOString() : "now()";
+
+    // Build filters based on measurement type
+    let filters = `r._measurement == "${measurement}" and r.safeId == "${safeId}"`;
+
+    if (measurement === "sensor_data" && sensorType) {
+      filters += ` and r.sensorType == "${sensorType}"`;
+    }
+    if (measurement === "event_log" && eventType) {
+      filters += ` and r.type == "${eventType}"`;
+    }
+
+    // Build query based on measurement type
+    let query: string;
+
+    if (measurement === "rotation_data") {
+      query = `
+        from(bucket: "${INFLUXDB_BUCKET}")
+          |> range(start: ${startTime ? start : "-30d"}, stop: ${endTime ? stop : "now()"})
+          |> filter(fn: (r) => ${filters})
+          |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+      `;
+    } else {
+      query = `
+        from(bucket: "${INFLUXDB_BUCKET}")
+          |> range(start: ${startTime ? start : "-30d"}, stop: ${endTime ? stop : "now()"})
+          |> filter(fn: (r) => ${filters})
+      `;
+    }
+
+    const results: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+
+          // Format based on measurement type
+          switch (measurement) {
+            case "sensor_data":
+              results.push({
+                timestamp: o._time,
+                sensorType: o.sensorType,
+                value: o._value,
+                unit: o.unit || "",
+                safeId: o.safeId,
+              });
+              break;
+            case "safe_status":
+              results.push({
+                timestamp: o._time,
+                status: o._value,
+                safeId: o.safeId,
+              });
+              break;
+            case "rotation_data":
+              results.push({
+                timestamp: o._time,
+                alpha: o.alpha,
+                beta: o.beta,
+                gamma: o.gamma,
+                safeId: o.safeId,
+              });
+              break;
+            case "event_log":
+              results.push({
+                timestamp: o._time,
+                type: o.type,
+                content: o._value,
+                severity: o.severity || "info",
+                safeId: o.safeId,
+              });
+              break;
+            default:
+              results.push({
+                timestamp: o._time,
+                value: o._value,
+                ...o,
+              });
+          }
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
+    });
+
+    // Sort results
+    const sortDir = sortDirection === "asc" ? 1 : -1;
+    results.sort((a, b) => {
+      const aVal = a[sortField as string];
+      const bVal = b[sortField as string];
+
+      if (sortField === "timestamp") {
+        return sortDir * (new Date(aVal).getTime() - new Date(bVal).getTime());
+      }
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortDir * (aVal - bVal);
+      }
+      return sortDir * String(aVal).localeCompare(String(bVal));
+    });
+
+    // Apply pagination
+    const limitNum = parseInt(limit as string);
+    const offsetNum = parseInt(offset as string);
+    const paginatedResults = results.slice(offsetNum, offsetNum + limitNum);
+
+    res.json({
+      success: true,
+      data: paginatedResults,
+      total: results.length,
+      limit: limitNum,
+      offset: offsetNum,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      data: [],
+      total: 0,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 // Publish command to MQTT
 app.post("/api/command", async (req: Request, res: Response) => {
   try {

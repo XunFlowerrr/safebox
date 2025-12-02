@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import * as THREE from "three";
 import {
   Card,
@@ -49,6 +50,7 @@ import {
   Wrench,
   Zap,
   Activity,
+  Database,
 } from "lucide-react";
 import { Canvas } from "@react-three/fiber";
 import { Model } from "@/components/box-model";
@@ -195,21 +197,12 @@ export default function DashboardPage() {
     <div className="font-sans min-h-screen p-6 md:p-10 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Safety Box Dashboard</h1>
-        {/* <div className='flex items-center gap-3'>
-          <span className='text-sm text-muted-foreground'>Armed</span>
-          <Switch
-            checked={armed}
-            onCheckedChange={setArmed}
-            aria-label='Arm safety'
-          />
-          <Badge
-            className={
-              armed ? "bg-green-600 text-white" : "bg-yellow-500 text-black"
-            }
-          >
-            {armed ? "ON" : "OFF"}
-          </Badge>
-        </div> */}
+        <Link href="/explorer">
+          <Button variant="outline">
+            <Database className="h-4 w-4 mr-2" />
+            Data Explorer
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

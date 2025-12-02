@@ -46,18 +46,6 @@ async function seed() {
       .floatField("value", vibration)
       .timestamp(timestamp);
     writeApi.writePoint(vibrationPoint);
-
-    // Add magnetic hall sensor data
-    if (i % 8 === 0) {
-      const hallValue = Math.random() > 0.7 ? 0.3 : 1.0;
-      const hallPoint = new Point("sensor_data")
-        .tag("safeId", safeId)
-        .tag("sensorType", "magnetic_hall")
-        .tag("unit", "bool")
-        .floatField("value", hallValue)
-        .timestamp(timestamp);
-      writeApi.writePoint(hallPoint);
-    }
   }
 
   // Generate safe status events
