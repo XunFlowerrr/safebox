@@ -32,6 +32,16 @@ const MQTT_TOPICS = {
   COMMAND: "safebox/command",
 };
 
+// Alert state tracking to prevent duplicate events
+// Key: "safeId:alertType", Value: { triggered: boolean, lastTriggered: Date }
+const alertState: Map<string, { triggered: boolean; lastTriggered: Date | null }> = new Map();
+
+// Cooldown period in milliseconds (prevent re-triggering for 5 seconds after condition clears)
+const ALERT_COOLDOWN_MS = 5000;
+
+// Track last received message time per safe for heartbeat
+const lastMessageTime: Map<string, Date> = new Map();
+
 // Initialize MQTT client
 let mqttClient: MqttClient;
 
@@ -117,6 +127,9 @@ app.use(express.json());
 async function handleSensorData(payload: unknown) {
   const data = sensorDataSchema.parse(payload);
 
+  // Update last message time for heartbeat tracking
+  lastMessageTime.set(data.safeId, new Date());
+
   const point = new Point("sensor_data")
     .tag("safeId", data.safeId)
     .tag("sensorType", data.sensorType)
@@ -129,15 +142,51 @@ async function handleSensorData(payload: unknown) {
   writeApi.writePoint(point);
   await writeApi.flush();
 
-  // Check for high vibration and create event
-  if (data.sensorType === "vibration" && data.value > 3000) {
-    await createEventLog("Hit", "Strong impact detected on panel.", data.safeId);
+  // Check for high vibration and create event (only on state transition)
+  const vibrationKey = `${data.safeId}:vibration`;
+  if (data.sensorType === "vibration") {
+    const isHighVibration = data.value > 3000;
+    const currentState = alertState.get(vibrationKey) || { triggered: false, lastTriggered: null };
+
+    if (isHighVibration && !currentState.triggered) {
+      // Transition from normal to high vibration - create event
+      await createEventLog("Hit", "Strong impact detected on panel.", data.safeId, "warning");
+      alertState.set(vibrationKey, { triggered: true, lastTriggered: new Date() });
+    } else if (!isHighVibration && currentState.triggered) {
+      // Transition from high to normal - reset state after cooldown
+      const now = new Date();
+      if (currentState.lastTriggered && (now.getTime() - currentState.lastTriggered.getTime() > ALERT_COOLDOWN_MS)) {
+        alertState.set(vibrationKey, { triggered: false, lastTriggered: null });
+      }
+    }
+  }
+
+  // Check for abnormal tilt and create event (only on state transition)
+  const tiltKey = `${data.safeId}:tilt`;
+  if (data.sensorType === "tilt") {
+    const isAbnormalTilt = data.value > 3.5;
+    const currentState = alertState.get(tiltKey) || { triggered: false, lastTriggered: null };
+
+    if (isAbnormalTilt && !currentState.triggered) {
+      // Transition from normal to abnormal tilt - create event
+      await createEventLog("Abnormal tilt detected", "Safe has been tilted abnormally.", data.safeId, "warning");
+      alertState.set(tiltKey, { triggered: true, lastTriggered: new Date() });
+    } else if (!isAbnormalTilt && currentState.triggered) {
+      // Transition from abnormal to normal - reset state after cooldown
+      const now = new Date();
+      if (currentState.lastTriggered && (now.getTime() - currentState.lastTriggered.getTime() > ALERT_COOLDOWN_MS)) {
+        alertState.set(tiltKey, { triggered: false, lastTriggered: null });
+      }
+    }
   }
 
   console.log(`Sensor data written: ${data.sensorType} = ${data.value}`);
 }
 
 // Handle safe status from MQTT
+// Track last status per safe to prevent duplicate events
+const lastSafeStatus: Map<string, string> = new Map();
+
 async function handleSafeStatus(payload: unknown) {
   const data = statusSchema.parse(payload);
   const safeId = data.safeId || "safe-001";
@@ -149,13 +198,18 @@ async function handleSafeStatus(payload: unknown) {
   writeApi.writePoint(point);
   await writeApi.flush();
 
-  // Create event logs based on status
-  if (data.status === "open") {
-    await createEventLog("Open with alarm", "Lid opened while armed. Siren triggered.", safeId);
-  } else if (data.status === "unlock") {
-    await createEventLog("Unlock", "System disarmed(unlock) by user.", safeId);
-  } else if (data.status === "lock") {
-    await createEventLog("Lock", "System armed.", safeId);
+  // Only create event logs when status actually changes
+  const previousStatus = lastSafeStatus.get(safeId);
+  if (previousStatus !== data.status) {
+    lastSafeStatus.set(safeId, data.status);
+
+    if (data.status === "open") {
+      await createEventLog("Open with alarm", "Lid opened while armed. Siren triggered.", safeId, "critical");
+    } else if (data.status === "unlock") {
+      await createEventLog("Unlock", "System disarmed(unlock) by user.", safeId, "info");
+    } else if (data.status === "lock") {
+      await createEventLog("Lock", "System armed.", safeId, "info");
+    }
   }
 
   console.log(`Safe status updated: ${data.status}`);
@@ -414,73 +468,38 @@ app.get("/api/rotation-data/latest", async (req: Request, res: Response) => {
 // Health check endpoint
 app.get("/api/health", async (req: Request, res: Response) => {
   try {
-    let lastHeartbeat = new Date().toISOString();
-    let status = "OK";
+    const { safeId = "safe-001" } = req.query;
 
-    // Get latest sensor data timestamp
-    const latestQuery = `
-      from(bucket: "${INFLUXDB_BUCKET}")
-        |> range(start: -24h)
-        |> filter(fn: (r) => r._measurement == "sensor_data")
-        |> sort(columns: ["_time"], desc: true)
-        |> limit(n: 1)
-    `;
+    // Get last heartbeat from in-memory tracking (real-time)
+    const lastMessage = lastMessageTime.get(safeId as string);
+    const lastHeartbeat = lastMessage ? lastMessage.toISOString() : null;
 
-    await new Promise<void>((resolve) => {
-      queryApi.queryRows(latestQuery, {
-        next(row: string[], tableMeta: FluxTableMetaData) {
-          const o = tableMeta.toObject(row);
-          lastHeartbeat = o._time;
-          const timeDiff = Date.now() - new Date(o._time).getTime();
-          if (timeDiff > 10000) {
-            status = "WARN";
-          }
-        },
-        error() {
-          status = "WARN";
-          resolve();
-        },
-        complete() {
-          resolve();
-        },
-      });
-    });
+    // Check if we've received data recently (within 5 seconds)
+    let connectionStatus: "OK" | "WARN" | "ERROR" = "ERROR";
+    if (lastMessage) {
+      const timeDiff = Date.now() - lastMessage.getTime();
+      if (timeDiff <= 5000) {
+        connectionStatus = "OK";
+      } else if (timeDiff <= 30000) {
+        connectionStatus = "WARN";
+      } else {
+        connectionStatus = "ERROR";
+      }
+    }
 
-    // Get latest safe status
-    const statusQuery = `
-      from(bucket: "${INFLUXDB_BUCKET}")
-        |> range(start: -30d)
-        |> filter(fn: (r) => r._measurement == "safe_status")
-        |> sort(columns: ["_time"], desc: true)
-        |> limit(n: 1)
-    `;
-
-    await new Promise<void>((resolve) => {
-      queryApi.queryRows(statusQuery, {
-        next(row: string[], tableMeta: FluxTableMetaData) {
-          const o = tableMeta.toObject(row);
-          const rawStatus = o._value;
-          if (rawStatus) {
-            status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
-          }
-        },
-        error() {
-          resolve();
-        },
-        complete() {
-          resolve();
-        },
-      });
-    });
+    // Get latest safe status from in-memory tracking
+    const safeStatus = lastSafeStatus.get(safeId as string) || "unknown";
 
     res.json({
-      status,
-      lastHeartbeat,
+      status: connectionStatus,
+      safeStatus: safeStatus.charAt(0).toUpperCase() + safeStatus.slice(1),
+      lastHeartbeat: lastHeartbeat || new Date().toISOString(),
       mqttConnected: mqttClient?.connected || false,
     });
   } catch (error) {
     res.status(500).json({
-      status: "WARN",
+      status: "ERROR",
+      safeStatus: "Unknown",
       lastHeartbeat: new Date().toISOString(),
       mqttConnected: mqttClient?.connected || false,
     });
@@ -614,6 +633,7 @@ app.get("/api/logs", async (req: Request, res: Response) => {
             type: o.type,
             content: o._value,
             timestamp: o._time,
+            severity: o.severity || "info",
           });
         },
         error(error: Error) {
@@ -796,7 +816,7 @@ app.post("/api/command", async (req: Request, res: Response) => {
     mqttClient.publish(
       MQTT_TOPICS.COMMAND,
       JSON.stringify({ command, safeId, timestamp: new Date().toISOString() }),
-      { qos: 1 },
+      { qos: 0 },
       (error: Error | undefined) => {
         if (error) {
           res.status(500).json({ success: false, error: error.message });

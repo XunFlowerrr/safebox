@@ -316,6 +316,7 @@ export default function DataExplorerPage() {
               />
               <YAxis width={50} />
               <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartLegend content={<ChartLegendContent />} />
               {sensorTypes.filter(Boolean).map((type, idx) => (
                 <Line
                   key={type}
@@ -562,6 +563,9 @@ export default function DataExplorerPage() {
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="Hit">Hit</SelectItem>
                       <SelectItem value="Tilt">Tilt</SelectItem>
+                      <SelectItem value="Abnormal tilt detected">
+                        Abnormal tilt detected
+                      </SelectItem>
                       <SelectItem value="Open with alarm">
                         Open with alarm
                       </SelectItem>

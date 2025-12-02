@@ -14,45 +14,47 @@ A full-stack IoT monitoring application for smart safes, featuring real-time sen
 
 ### Prerequisites
 
-- Node.js 18+
-- pnpm
 - Docker and Docker Compose
 
-### Backend Setup
+### Quick Start (Docker - Development)
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend-db
-   ```
+Run the entire stack with a single command:
 
-2. Run the setup script:
-   ```bash
-   ./setup-db.sh
-   ```
+```bash
+docker compose up -d --build
+```
 
-   This will:
-   - Start MQTT broker (Mosquitto) and InfluxDB using Docker
-   - Install dependencies
-   - Seed the database with sample data
+This will start:
+- Frontend (Next.js dev server) on http://localhost:3000
+- Backend (Express.js) on http://localhost:3001
+- MQTT Broker (Mosquitto) on ports 1883/9001
+- InfluxDB on http://localhost:8086
 
-3. Start the backend server:
-   ```bash
-   pnpm dev
-   ```
+To seed the database with sample data:
+```bash
+docker compose exec backend npx ts-node src/seed.ts
+```
 
-### Frontend Setup
+### Development Setup (Local)
 
-1. In the project root, install dependencies:
+If you prefer to run the frontend locally for development:
+
+1. Install dependencies:
    ```bash
    pnpm install
    ```
 
-2. Run the development server:
+2. Start the infrastructure (MQTT, InfluxDB, Backend):
+   ```bash
+   docker compose up -d mqtt influxdb backend
+   ```
+
+3. Run the frontend development server:
    ```bash
    pnpm dev
    ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser.
+4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Services
 
@@ -100,14 +102,22 @@ A full-stack IoT monitoring application for smart safes, featuring real-time sen
 ## Docker Compose
 
 Start all services:
+
 ```bash
-cd backend-db
 docker compose up -d
 ```
 
 Stop all services:
+
 ```bash
 docker compose down
+```
+
+Reset all data (removes InfluxDB volumes):
+
+```bash
+docker compose down -v
+docker compose up -d
 ```
 
 ## Learn More
