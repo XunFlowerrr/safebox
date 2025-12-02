@@ -8919,3 +8919,66 @@
 1764670054: Received PUBLISH from safebox-gateway-31479 (d0, q1, r0, m2951, 'safebox/safe-status', ... (40 bytes))
 1764670054: Sending PUBLISH to safebox-backend-1764669988292 (d0, q0, r0, m0, 'safebox/safe-status', ... (40 bytes))
 1764670054: Sending PUBACK to safebox-gateway-31479 (m2951, rc0)
+1764673817: mosquitto version 2.0.22 starting
+1764673817: Config loaded from /mosquitto/config/mosquitto.conf.
+1764673817: Opening ipv4 listen socket on port 1883.
+1764673817: Opening ipv6 listen socket on port 1883.
+1764673817: Opening websockets listen socket on port 9001.
+1764673817: mosquitto version 2.0.22 running
+1764673848: New connection from 192.168.97.4:33042 on port 1883.
+1764673848: New client connected from 192.168.97.4:33042 as safebox-backend-1764673848807 (p2, c1, k60).
+1764673848: No will message specified.
+1764673848: Sending CONNACK to safebox-backend-1764673848807 (0, 0)
+1764673848: Received SUBSCRIBE from safebox-backend-1764673848807
+1764673848: 	safebox/sensor-data (QoS 0)
+1764673848: safebox-backend-1764673848807 0 safebox/sensor-data
+1764673848: Sending SUBACK to safebox-backend-1764673848807
+1764673848: Received SUBSCRIBE from safebox-backend-1764673848807
+1764673848: 	safebox/safe-status (QoS 0)
+1764673848: safebox-backend-1764673848807 0 safebox/safe-status
+1764673848: Sending SUBACK to safebox-backend-1764673848807
+1764673848: Received SUBSCRIBE from safebox-backend-1764673848807
+1764673848: 	safebox/rotation-data (QoS 0)
+1764673848: safebox-backend-1764673848807 0 safebox/rotation-data
+1764673848: Sending SUBACK to safebox-backend-1764673848807
+1764673848: Received SUBSCRIBE from safebox-backend-1764673848807
+1764673848: 	safebox/command (QoS 0)
+1764673848: safebox-backend-1764673848807 0 safebox/command
+1764673848: Sending SUBACK to safebox-backend-1764673848807
+1764673908: Received PINGREQ from safebox-backend-1764673848807
+1764673908: Sending PINGRESP to safebox-backend-1764673848807
+1764673968: Received PINGREQ from safebox-backend-1764673848807
+1764673968: Sending PINGRESP to safebox-backend-1764673848807
+1764674009: Client safebox-backend-1764673848807 closed its connection.
+1764674009: mosquitto version 2.0.22 terminating
+1764674009: Saving in-memory database to /mosquitto/data//mosquitto.db.
+1764674016: mosquitto version 2.0.22 starting
+1764674016: Config loaded from /mosquitto/config/mosquitto.conf.
+1764674016: Opening ipv4 listen socket on port 1883.
+1764674016: Opening ipv6 listen socket on port 1883.
+1764674016: Opening websockets listen socket on port 9001.
+1764674016: mosquitto version 2.0.22 running
+1764674047: New connection from 192.168.97.4:41926 on port 1883.
+1764674047: New client connected from 192.168.97.4:41926 as safebox-backend-1764674047553 (p2, c1, k60).
+1764674047: No will message specified.
+1764674047: Sending CONNACK to safebox-backend-1764674047553 (0, 0)
+1764674047: Received SUBSCRIBE from safebox-backend-1764674047553
+1764674047: 	safebox/sensor-data (QoS 0)
+1764674047: safebox-backend-1764674047553 0 safebox/sensor-data
+1764674047: Sending SUBACK to safebox-backend-1764674047553
+1764674047: Received SUBSCRIBE from safebox-backend-1764674047553
+1764674047: 	safebox/safe-status (QoS 0)
+1764674047: safebox-backend-1764674047553 0 safebox/safe-status
+1764674047: Sending SUBACK to safebox-backend-1764674047553
+1764674047: Received SUBSCRIBE from safebox-backend-1764674047553
+1764674047: 	safebox/rotation-data (QoS 0)
+1764674047: safebox-backend-1764674047553 0 safebox/rotation-data
+1764674047: Sending SUBACK to safebox-backend-1764674047553
+1764674047: Received SUBSCRIBE from safebox-backend-1764674047553
+1764674047: 	safebox/command (QoS 0)
+1764674047: safebox-backend-1764674047553 0 safebox/command
+1764674047: Sending SUBACK to safebox-backend-1764674047553
+1764674107: Received PINGREQ from safebox-backend-1764674047553
+1764674107: Sending PINGRESP to safebox-backend-1764674047553
+1764674167: Received PINGREQ from safebox-backend-1764674047553
+1764674167: Sending PINGRESP to safebox-backend-1764674047553
