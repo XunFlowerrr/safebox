@@ -316,6 +316,7 @@ export default function DataExplorerPage() {
               />
               <YAxis width={50} />
               <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartLegend content={<ChartLegendContent />} />
               {sensorTypes.filter(Boolean).map((type, idx) => (
                 <Line
                   key={type}
