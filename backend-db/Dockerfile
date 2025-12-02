@@ -11,18 +11,14 @@ COPY package.json pnpm-lock.yaml ./
 # Install dependencies
 RUN pnpm install
 
-# Copy source code and prisma schema
+# Copy source code
 COPY . .
 
-RUN pnpm prisma generate
 # Build the application
 RUN pnpm build
 
 # Expose port
 EXPOSE 3001
 
-# Create startup script that generates Prisma and runs the app
-RUN printf '#!/bin/sh\npnpm prisma generate\npnpm prisma db push\npnpm start\n' > /app/start.sh && chmod +x /app/start.sh
-
 # Start the application
-CMD ["sh", "/app/start.sh"]
+CMD ["pnpm", "start"]

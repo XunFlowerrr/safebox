@@ -1,17 +1,94 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import mqtt, { MqttClient } from "mqtt";
+import { InfluxDB, Point, QueryApi, WriteApi, FluxTableMetaData } from "@influxdata/influxdb-client";
 import { z } from "zod";
 
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(express.json());
+// InfluxDB Configuration
+const INFLUXDB_URL = process.env.INFLUXDB_URL || "http://localhost:8086";
+const INFLUXDB_TOKEN = process.env.INFLUXDB_TOKEN || "safebox-influxdb-token";
+const INFLUXDB_ORG = process.env.INFLUXDB_ORG || "safebox";
+const INFLUXDB_BUCKET = process.env.INFLUXDB_BUCKET || "iot-data";
+
+// MQTT Configuration
+const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
+
+// Initialize InfluxDB client
+const influxDB = new InfluxDB({ url: INFLUXDB_URL, token: INFLUXDB_TOKEN });
+const writeApi: WriteApi = influxDB.getWriteApi(INFLUXDB_ORG, INFLUXDB_BUCKET, "ns");
+const queryApi: QueryApi = influxDB.getQueryApi(INFLUXDB_ORG);
+
+// MQTT Topics
+const MQTT_TOPICS = {
+  SENSOR_DATA: "safebox/sensor-data",
+  SAFE_STATUS: "safebox/safe-status",
+  ROTATION_DATA: "safebox/rotation-data",
+  COMMAND: "safebox/command",
+};
+
+// Initialize MQTT client
+let mqttClient: MqttClient;
+
+function initMQTT() {
+  mqttClient = mqtt.connect(MQTT_BROKER_URL, {
+    clientId: `safebox-backend-${Date.now()}`,
+    clean: true,
+    connectTimeout: 4000,
+    reconnectPeriod: 1000,
+  });
+
+  mqttClient.on("connect", () => {
+    console.log("Connected to MQTT broker");
+
+    // Subscribe to all topics
+    Object.values(MQTT_TOPICS).forEach((topic) => {
+      mqttClient.subscribe(topic, (err: Error | null) => {
+        if (err) {
+          console.error(`Failed to subscribe to ${topic}:`, err);
+        } else {
+          console.log(`Subscribed to ${topic}`);
+        }
+      });
+    });
+  });
+
+  mqttClient.on("message", async (topic: string, message: Buffer) => {
+    try {
+      const payload = JSON.parse(message.toString());
+      console.log(`Received message on ${topic}:`, payload);
+
+      switch (topic) {
+        case MQTT_TOPICS.SENSOR_DATA:
+          await handleSensorData(payload);
+          break;
+        case MQTT_TOPICS.SAFE_STATUS:
+          await handleSafeStatus(payload);
+          break;
+        case MQTT_TOPICS.ROTATION_DATA:
+          await handleRotationData(payload);
+          break;
+        default:
+          console.log(`Unknown topic: ${topic}`);
+      }
+    } catch (error) {
+      console.error("Error processing MQTT message:", error);
+    }
+  });
+
+  mqttClient.on("error", (error: Error) => {
+    console.error("MQTT error:", error);
+  });
+
+  mqttClient.on("reconnect", () => {
+    console.log("Reconnecting to MQTT broker...");
+  });
+}
 
 // Validation schemas
 const sensorDataSchema = z.object({
@@ -23,6 +100,7 @@ const sensorDataSchema = z.object({
 
 const statusSchema = z.object({
   status: z.enum(["open", "lock", "unlock"]),
+  safeId: z.string().optional(),
 });
 
 const rotationDataSchema = z.object({
@@ -32,54 +110,93 @@ const rotationDataSchema = z.object({
   safeId: z.string(),
 });
 
-// Additional validation schemas for new endpoints
-const healthResponseSchema = z.object({
-  status: z.enum(["OK", "WARN", "ERROR"]),
-  lastHeartbeat: z.string(),
-});
+app.use(cors());
+app.use(express.json());
 
-const chartQuerySchema = z.object({
-  safeId: z.string().optional(),
-  hours: z.string().default("24"),
-});
+// Handle sensor data from MQTT
+async function handleSensorData(payload: unknown) {
+  const data = sensorDataSchema.parse(payload);
 
-const logsQuerySchema = z.object({
-  safeId: z.string().optional(),
-  limit: z.string().default("50"),
-});
+  const point = new Point("sensor_data")
+    .tag("safeId", data.safeId)
+    .tag("sensorType", data.sensorType)
+    .floatField("value", data.value);
 
-// POST sensor data from gateway
+  if (data.unit) {
+    point.tag("unit", data.unit);
+  }
+
+  writeApi.writePoint(point);
+  await writeApi.flush();
+
+  // Check for high vibration and create event
+  if (data.sensorType === "vibration" && data.value > 3000) {
+    await createEventLog("Hit", "Strong impact detected on panel.", data.safeId);
+  }
+
+  console.log(`Sensor data written: ${data.sensorType} = ${data.value}`);
+}
+
+// Handle safe status from MQTT
+async function handleSafeStatus(payload: unknown) {
+  const data = statusSchema.parse(payload);
+  const safeId = data.safeId || "safe-001";
+
+  const point = new Point("safe_status")
+    .tag("safeId", safeId)
+    .stringField("status", data.status);
+
+  writeApi.writePoint(point);
+  await writeApi.flush();
+
+  // Create event logs based on status
+  if (data.status === "open") {
+    await createEventLog("Open with alarm", "Lid opened while armed. Siren triggered.", safeId);
+  } else if (data.status === "unlock") {
+    await createEventLog("Unlock", "System disarmed(unlock) by user.", safeId);
+  } else if (data.status === "lock") {
+    await createEventLog("Lock", "System armed.", safeId);
+  }
+
+  console.log(`Safe status updated: ${data.status}`);
+}
+
+// Handle rotation data from MQTT
+async function handleRotationData(payload: unknown) {
+  const data = rotationDataSchema.parse(payload);
+
+  const point = new Point("rotation_data")
+    .tag("safeId", data.safeId)
+    .floatField("alpha", data.alpha)
+    .floatField("beta", data.beta)
+    .floatField("gamma", data.gamma);
+
+  writeApi.writePoint(point);
+  await writeApi.flush();
+
+  console.log(`Rotation data written: alpha=${data.alpha}, beta=${data.beta}, gamma=${data.gamma}`);
+}
+
+// Create event log
+async function createEventLog(type: string, content: string, safeId: string, severity: string = "info") {
+  const point = new Point("event_log")
+    .tag("safeId", safeId)
+    .tag("type", type)
+    .tag("severity", severity)
+    .stringField("content", content);
+
+  writeApi.writePoint(point);
+  await writeApi.flush();
+}
+
+// REST API endpoints (for backward compatibility and dashboard queries)
+
+// POST sensor data (REST fallback)
 app.post("/api/sensor-data", async (req: Request, res: Response) => {
   try {
     const data = sensorDataSchema.parse(req.body);
-
-    const sensorLog = await prisma.sensorLog.create({
-      data: {
-        sensorType: data.sensorType,
-        value: data.value,
-        unit: data.unit,
-        safeId: data.safeId,
-      },
-    });
-
-    if (data.sensorType === "vibration" && data.value > 3000) {
-      // if latest and new status is same skip
-      const latest = await prisma.eventLog.findFirst({
-        orderBy: { timestamp: "desc" },
-      });
-
-      if (latest && latest.type !== "Hit") {
-        await prisma.eventLog.create({
-          data: {
-            type: "Hit",
-            content: "Strong impact detected on panel.",
-            safeId: "safe-001",
-          },
-        });
-      }
-    }
-
-    res.json({ success: true, data: sensorLog });
+    await handleSensorData(data);
+    res.json({ success: true, data });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -92,13 +209,39 @@ app.post("/api/sensor-data", async (req: Request, res: Response) => {
 app.get("/api/sensor-data", async (req: Request, res: Response) => {
   try {
     const { safeId, limit = "50" } = req.query;
+    const safeIdFilter = safeId ? `and r.safeId == "${safeId}"` : "";
 
-    const logs = await prisma.sensorLog.findMany({
-      where: safeId ? { safeId: safeId as string } : {},
-      orderBy: { timestamp: "desc" },
-      take: parseInt(limit as string),
+    const query = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "sensor_data" ${safeIdFilter})
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: ${parseInt(limit as string)})
+    `;
+
+    const results: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          results.push({
+            sensorType: o.sensorType,
+            value: o._value,
+            unit: o.unit,
+            timestamp: o._time,
+            safeId: o.safeId,
+          });
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
-    res.json({ success: true, data: logs });
+
+    res.json({ success: true, data: results });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -107,55 +250,12 @@ app.get("/api/sensor-data", async (req: Request, res: Response) => {
   }
 });
 
-// POST safe status
+// POST safe status (REST fallback)
 app.post("/api/safe-status", async (req: Request, res: Response) => {
   try {
     const data = statusSchema.parse(req.body);
-
-    // if latest and new status is same skip
-    const latest = await prisma.safeStatus.findFirst({
-      orderBy: { timestamp: "desc" },
-    });
-
-    if (latest && latest.status === data.status) {
-      return res.json({ success: true, data: latest });
-    }
-
-    const status = await prisma.safeStatus.create({
-      data: {
-        status: data.status,
-      },
-    });
-
-    if (data.status === "open") {
-      // Create an event log for opening while armed
-      await prisma.eventLog.create({
-        data: {
-          type: "Open with alarm",
-          content: "Lid opened while armed. Siren triggered.",
-          safeId: "safe-001",
-        },
-      });
-    } else if (data.status === "unlock") {
-      // Create an event log for disarming
-      await prisma.eventLog.create({
-        data: {
-          type: "Unlock",
-          content: "System disarmed(unlock) by user.",
-          safeId: "safe-001",
-        },
-      });
-    } else if (data.status === "lock") {
-      // Create an event log for arming
-      await prisma.eventLog.create({
-        data: {
-          type: "Lock",
-          content: "System armed.",
-          safeId: "safe-001",
-        },
-      });
-    }
-    res.json({ success: true, data: status });
+    await handleSafeStatus(data);
+    res.json({ success: true, data });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -167,9 +267,36 @@ app.post("/api/safe-status", async (req: Request, res: Response) => {
 // GET current safe status
 app.get("/api/safe-status", async (req: Request, res: Response) => {
   try {
-    const status = await prisma.safeStatus.findFirst({
-      orderBy: { timestamp: "desc" },
+    const { safeId = "safe-001" } = req.query;
+
+    const query = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -30d)
+        |> filter(fn: (r) => r._measurement == "safe_status" and r.safeId == "${safeId}")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 1)
+    `;
+
+    let status: any = null;
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          status = {
+            status: o._value,
+            timestamp: o._time,
+            safeId: o.safeId,
+          };
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
+
     res.json({ success: true, data: status });
   } catch (error) {
     res.status(500).json({
@@ -179,21 +306,12 @@ app.get("/api/safe-status", async (req: Request, res: Response) => {
   }
 });
 
-// POST rotation data
+// POST rotation data (REST fallback)
 app.post("/api/rotation-data", async (req: Request, res: Response) => {
   try {
     const data = rotationDataSchema.parse(req.body);
-
-    const rotationLog = await prisma.rotationLog.create({
-      data: {
-        alpha: data.alpha,
-        beta: data.beta,
-        gamma: data.gamma,
-        safeId: data.safeId,
-      },
-    });
-
-    res.json({ success: true, data: rotationLog });
+    await handleRotationData(data);
+    res.json({ success: true, data });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -206,13 +324,40 @@ app.post("/api/rotation-data", async (req: Request, res: Response) => {
 app.get("/api/rotation-data", async (req: Request, res: Response) => {
   try {
     const { safeId, limit = "50" } = req.query;
+    const safeIdFilter = safeId ? `and r.safeId == "${safeId}"` : "";
 
-    const logs = await prisma.rotationLog.findMany({
-      where: safeId ? { safeId: safeId as string } : {},
-      orderBy: { timestamp: "desc" },
-      take: parseInt(limit as string),
+    const query = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "rotation_data" ${safeIdFilter})
+        |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: ${parseInt(limit as string)})
+    `;
+
+    const results: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          results.push({
+            alpha: o.alpha,
+            beta: o.beta,
+            gamma: o.gamma,
+            timestamp: o._time,
+            safeId: o.safeId,
+          });
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
-    res.json({ success: true, data: logs });
+
+    res.json({ success: true, data: results });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -226,9 +371,35 @@ app.get("/api/rotation-data/latest", async (req: Request, res: Response) => {
   try {
     const { safeId = "safe-001" } = req.query;
 
-    const latestRotation = await prisma.rotationLog.findFirst({
-      where: { safeId: safeId as string },
-      orderBy: { timestamp: "desc" },
+    const query = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "rotation_data" and r.safeId == "${safeId}")
+        |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 1)
+    `;
+
+    let latestRotation: any = null;
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          latestRotation = {
+            alpha: o.alpha,
+            beta: o.beta,
+            gamma: o.gamma,
+            timestamp: o._time,
+            safeId: o.safeId,
+          };
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
 
     res.json({ success: true, data: latestRotation });
@@ -243,44 +414,75 @@ app.get("/api/rotation-data/latest", async (req: Request, res: Response) => {
 // Health check endpoint
 app.get("/api/health", async (req: Request, res: Response) => {
   try {
-    // Check database connectivity
-    await prisma.$queryRaw`SELECT 1`;
-
-    // Get latest sensor data to determine status
-    const latestSensorData = await prisma.sensorLog.findFirst({
-      orderBy: { timestamp: "desc" },
-    });
-
-    const now = new Date();
+    let lastHeartbeat = new Date().toISOString();
     let status = "OK";
 
-    const raw_status = await prisma.safeStatus.findFirst({
-      orderBy: { timestamp: "desc" },
+    // Get latest sensor data timestamp
+    const latestQuery = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "sensor_data")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 1)
+    `;
+
+    await new Promise<void>((resolve) => {
+      queryApi.queryRows(latestQuery, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          lastHeartbeat = o._time;
+          const timeDiff = Date.now() - new Date(o._time).getTime();
+          if (timeDiff > 10000) {
+            status = "WARN";
+          }
+        },
+        error() {
+          status = "WARN";
+          resolve();
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
-    status = raw_status
-      ? raw_status.status.charAt(0).toUpperCase() + raw_status.status.slice(1)
-      : "WARN";
 
-    if (latestSensorData) {
-      const timeDiff = now.getTime() - latestSensorData.timestamp.getTime();
-      const secondsSinceLastData = timeDiff / 1000;
+    // Get latest safe status
+    const statusQuery = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -30d)
+        |> filter(fn: (r) => r._measurement == "safe_status")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 1)
+    `;
 
-      if (secondsSinceLastData > 10) {
-        status = "WARN";
-      }
-    } else {
-      status = "WARN"; // No data available
-    }
+    await new Promise<void>((resolve) => {
+      queryApi.queryRows(statusQuery, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          const rawStatus = o._value;
+          if (rawStatus) {
+            status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
+          }
+        },
+        error() {
+          resolve();
+        },
+        complete() {
+          resolve();
+        },
+      });
+    });
 
     res.json({
       status,
-      lastHeartbeat:
-        latestSensorData?.timestamp.toISOString() || now.toISOString(),
+      lastHeartbeat,
+      mqttConnected: mqttClient?.connected || false,
     });
   } catch (error) {
     res.status(500).json({
       status: "WARN",
       lastHeartbeat: new Date().toISOString(),
+      mqttConnected: mqttClient?.connected || false,
     });
   }
 });
@@ -288,91 +490,99 @@ app.get("/api/health", async (req: Request, res: Response) => {
 // Charts endpoint - get sensor data for visualization
 app.get("/api/charts", async (req: Request, res: Response) => {
   try {
-    const { safeId = "safe-001", hours = "24" } = req.query;
+    const { safeId = "safe-001" } = req.query;
 
-    // Query sensor data separately for each sensor type
-    const [tiltData, vibrationData] = await Promise.all([
-      prisma.sensorLog.findMany({
-        where: {
-          safeId: safeId as string,
-          sensorType: "tilt",
-        },
-        orderBy: { timestamp: "desc" },
-        take: 30,
+    // Query tilt and vibration data separately
+    const tiltQuery = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "sensor_data" and r.safeId == "${safeId}" and r.sensorType == "tilt")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 30)
+    `;
+
+    const vibrationQuery = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -24h)
+        |> filter(fn: (r) => r._measurement == "sensor_data" and r.safeId == "${safeId}" and r.sensorType == "vibration")
+        |> sort(columns: ["_time"], desc: true)
+        |> limit(n: 30)
+    `;
+
+    const tiltData: any[] = [];
+    const vibrationData: any[] = [];
+
+    await Promise.all([
+      new Promise<void>((resolve, reject) => {
+        queryApi.queryRows(tiltQuery, {
+          next(row: string[], tableMeta: FluxTableMetaData) {
+            const o = tableMeta.toObject(row);
+            tiltData.push({ timestamp: o._time, value: o._value });
+          },
+          error(error: Error) {
+            reject(error);
+          },
+          complete() {
+            resolve();
+          },
+        });
       }),
-      prisma.sensorLog.findMany({
-        where: {
-          safeId: safeId as string,
-          sensorType: "vibration",
-        },
-        orderBy: { timestamp: "desc" },
-        take: 30,
+      new Promise<void>((resolve, reject) => {
+        queryApi.queryRows(vibrationQuery, {
+          next(row: string[], tableMeta: FluxTableMetaData) {
+            const o = tableMeta.toObject(row);
+            vibrationData.push({ timestamp: o._time, value: o._value });
+          },
+          error(error: Error) {
+            reject(error);
+          },
+          complete() {
+            resolve();
+          },
+        });
       }),
     ]);
 
-    // Combine the sensor data
-    const sensorData = [...tiltData, ...vibrationData];
-
-    console.log("Raw sensor data fetched:", {
-      tilt: tiltData.length,
-      vibration: vibrationData.length,
-      total: sensorData.length,
-    }); // Group data by second and calculate averages
+    // Group data by second and calculate averages
     const secondlyData: Record<string, { tilt: number[]; vib: number[] }> = {};
 
-    let minTime = new Date();
-    sensorData.forEach((data: any) => {
-      const raw_timestamp = new Date(data.timestamp);
-      const timestamp = new Date(raw_timestamp.getTime() + 7 * 60 * 60 * 1000); // Convert to Thai time (UTC+7)
+    tiltData.forEach((data) => {
+      const timestamp = new Date(data.timestamp);
       const timeKey = timestamp.toISOString();
-      minTime = timestamp < minTime ? timestamp : minTime;
       if (!secondlyData[timeKey]) {
         secondlyData[timeKey] = { tilt: [], vib: [] };
       }
-      if (data.sensorType === "tilt") {
-        // Use raw accelerometer value
-        secondlyData[timeKey].tilt.push(parseFloat(data.value.toFixed(2)));
-      } else if (data.sensorType === "vibration") {
-        secondlyData[timeKey].vib.push(parseFloat(data.value.toFixed(2)));
-      }
+      secondlyData[timeKey].tilt.push(parseFloat(data.value.toFixed(2)));
     });
 
-    console.log("Grouped secondly data:", secondlyData);
-
-    // Generate chart points for each second in the time range
-    const chartPoints = [];
-
-    for (const [timeKey, _] of Object.entries(secondlyData)) {
-      let tilt = null;
-      let vib = null;
-
-      if (secondlyData[timeKey]) {
-        tilt =
-          secondlyData[timeKey].tilt.length > 0
-            ? secondlyData[timeKey].tilt.reduce((a, b) => a + b, 0) /
-              secondlyData[timeKey].tilt.length
-            : null;
-
-        vib =
-          secondlyData[timeKey].vib.length > 0
-            ? secondlyData[timeKey].vib.reduce((a, b) => a + b, 0) /
-              secondlyData[timeKey].vib.length
-            : null;
+    vibrationData.forEach((data) => {
+      const timestamp = new Date(data.timestamp);
+      const timeKey = timestamp.toISOString();
+      if (!secondlyData[timeKey]) {
+        secondlyData[timeKey] = { tilt: [], vib: [] };
       }
+      secondlyData[timeKey].vib.push(parseFloat(data.value.toFixed(2)));
+    });
+
+    // Generate chart points
+    const chartPoints = [];
+    for (const [timeKey, data] of Object.entries(secondlyData)) {
+      const tilt = data.tilt.length > 0
+        ? data.tilt.reduce((a, b) => a + b, 0) / data.tilt.length
+        : null;
+      const vib = data.vib.length > 0
+        ? data.vib.reduce((a, b) => a + b, 0) / data.vib.length
+        : null;
 
       chartPoints.push({
         t: timeKey,
-        tilt: tilt,
-        vib: vib,
+        tilt,
+        vib,
       });
     }
 
-    // reverst order chartPoints
-    chartPoints.sort(
-      (a, b) => new Date(a.t).getTime() - new Date(b.t).getTime()
-    );
-
-    console.log("Processed chart data points:", chartPoints);
+    // Sort by time
+    chartPoints.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
 
     res.json(chartPoints);
   } catch (error) {
@@ -388,148 +598,40 @@ app.get("/api/logs", async (req: Request, res: Response) => {
   try {
     const { safeId = "safe-001", limit = "50" } = req.query;
 
-    // First try to get pre-created event logs
-    const eventLogs = await prisma.eventLog.findMany({
-      where: {
-        safeId: safeId as string,
-      },
-      orderBy: { timestamp: "desc" },
-      take: parseInt(limit as string),
+    const query = `
+      from(bucket: "${INFLUXDB_BUCKET}")
+        |> range(start: -7d)
+        |> filter(fn: (r) => r._measurement == "event_log" and r.safeId == "${safeId}")
+        |> sort(columns: ["_time"], desc: true)
+    `;
+
+    const results: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+          results.push({
+            type: o.type,
+            content: o._value,
+            timestamp: o._time,
+          });
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
     });
 
-    // If we have event logs, return them
-    if (eventLogs.length > 0) {
-      interface EventLogResponse {
-        type: string;
-        content: string;
-        timestamp: string;
-      }
+    // Sort results by timestamp descending (InfluxDB returns grouped by series, not globally sorted)
+    results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-      const response: EventLogResponse[] = eventLogs.map(
-        (log: { type: string; content: string; timestamp: Date }) => ({
-          type: log.type,
-          content: log.content,
-          timestamp: log.timestamp.toISOString(),
-        })
-      );
-      return res.json(response);
-    }
+    // Apply limit after sorting
+    const limitedResults = results.slice(0, parseInt(limit as string));
 
-    // Fallback: Generate events from sensor logs and status changes
-    const [sensorLogs, statusChanges] = await Promise.all([
-      prisma.sensorLog.findMany({
-        where: { safeId: safeId as string },
-        orderBy: { timestamp: "desc" },
-        take: parseInt(limit as string) / 2,
-      }),
-      prisma.safeStatus.findMany({
-        where: { safeId: safeId as string },
-        orderBy: { timestamp: "desc" },
-        take: parseInt(limit as string) / 2,
-      }),
-    ]);
-
-    // Convert sensor logs to event logs
-    const dynamicEventLogs: Array<{
-      type: string;
-      content: string;
-      timestamp: Date;
-    }> = [];
-
-    // Process sensor logs
-    sensorLogs.forEach((log: any) => {
-      let type = "";
-      let content = "";
-
-      switch (log.sensorType) {
-        case "vibration":
-          if (log.value > 5) {
-            type = "Vibration";
-            content = `High vibration level detected (${log.value}).`;
-          }
-          break;
-        case "accelerometer":
-          const tiltAngle = Math.abs(log.value) * 10;
-          if (tiltAngle > 30) {
-            type = "Tilt";
-            content = `Box tilted beyond 30° on ${
-              log.value > 0 ? "Y" : "X"
-            }-axis.`;
-          }
-          break;
-        case "magnetic_hall":
-          if (log.value < 0.5) {
-            type = "Open";
-            content = "Lid opened while disarmed.";
-          }
-          break;
-        case "buzzer":
-          type = "Hit";
-          content = "Impact detected on panel.";
-          break;
-        case "temperature":
-          if (log.value > 35) {
-            type = "Temperature";
-            content = `Temperature rose to ${log.value.toFixed(1)}°C.`;
-          }
-          break;
-        case "battery":
-          if (log.value < 20) {
-            type = "Battery";
-            content = `Battery level low: ${Math.round(log.value)}%.`;
-          }
-          break;
-      }
-
-      if (type && content) {
-        dynamicEventLogs.push({
-          type,
-          content,
-          timestamp: log.timestamp,
-        });
-      }
-    });
-
-    // Process status changes
-    statusChanges.forEach((status: any) => {
-      let type = "";
-      let content = "";
-
-      switch (status.status) {
-        case "lock":
-          type = "Arm";
-          content = "System armed by user.";
-          break;
-        case "unlock":
-          type = "Disarm";
-          content = "System disarmed by user.";
-          break;
-        case "open":
-          type = "Open with alarm";
-          content = "Lid opened while armed. Siren triggered.";
-          break;
-      }
-
-      if (type && content) {
-        dynamicEventLogs.push({
-          type,
-          content,
-          timestamp: status.timestamp,
-        });
-      }
-    });
-
-    // Sort by timestamp and format response
-    const sortedLogs = dynamicEventLogs
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, parseInt(limit as string))
-      .map((log) => ({
-        type: log.type,
-        content: log.content,
-        timestamp: log.timestamp.toISOString(),
-      }));
-
-    res.json(sortedLogs);
+    res.json(limitedResults);
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -538,6 +640,207 @@ app.get("/api/logs", async (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Data Explorer endpoint - query any measurement with filters and sorting
+app.get("/api/explorer", async (req: Request, res: Response) => {
+  try {
+    const {
+      measurement = "sensor_data",
+      limit = "50",
+      offset = "0",
+      sortField = "timestamp",
+      sortDirection = "desc",
+      startTime,
+      endTime,
+      sensorType,
+      eventType,
+      safeId = "safe-001",
+    } = req.query;
+
+    // Determine time range
+    const start = startTime ? new Date(startTime as string).toISOString() : "-30d";
+    const stop = endTime ? new Date(endTime as string).toISOString() : "now()";
+
+    // Build filters based on measurement type
+    let filters = `r._measurement == "${measurement}" and r.safeId == "${safeId}"`;
+
+    if (measurement === "sensor_data" && sensorType) {
+      filters += ` and r.sensorType == "${sensorType}"`;
+    }
+    if (measurement === "event_log" && eventType) {
+      filters += ` and r.type == "${eventType}"`;
+    }
+
+    // Build query based on measurement type
+    let query: string;
+
+    if (measurement === "rotation_data") {
+      query = `
+        from(bucket: "${INFLUXDB_BUCKET}")
+          |> range(start: ${startTime ? start : "-30d"}, stop: ${endTime ? stop : "now()"})
+          |> filter(fn: (r) => ${filters})
+          |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+      `;
+    } else {
+      query = `
+        from(bucket: "${INFLUXDB_BUCKET}")
+          |> range(start: ${startTime ? start : "-30d"}, stop: ${endTime ? stop : "now()"})
+          |> filter(fn: (r) => ${filters})
+      `;
+    }
+
+    const results: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      queryApi.queryRows(query, {
+        next(row: string[], tableMeta: FluxTableMetaData) {
+          const o = tableMeta.toObject(row);
+
+          // Format based on measurement type
+          switch (measurement) {
+            case "sensor_data":
+              results.push({
+                timestamp: o._time,
+                sensorType: o.sensorType,
+                value: o._value,
+                unit: o.unit || "",
+                safeId: o.safeId,
+              });
+              break;
+            case "safe_status":
+              results.push({
+                timestamp: o._time,
+                status: o._value,
+                safeId: o.safeId,
+              });
+              break;
+            case "rotation_data":
+              results.push({
+                timestamp: o._time,
+                alpha: o.alpha,
+                beta: o.beta,
+                gamma: o.gamma,
+                safeId: o.safeId,
+              });
+              break;
+            case "event_log":
+              results.push({
+                timestamp: o._time,
+                type: o.type,
+                content: o._value,
+                severity: o.severity || "info",
+                safeId: o.safeId,
+              });
+              break;
+            default:
+              results.push({
+                timestamp: o._time,
+                value: o._value,
+                ...o,
+              });
+          }
+        },
+        error(error: Error) {
+          reject(error);
+        },
+        complete() {
+          resolve();
+        },
+      });
+    });
+
+    // Sort results
+    const sortDir = sortDirection === "asc" ? 1 : -1;
+    results.sort((a, b) => {
+      const aVal = a[sortField as string];
+      const bVal = b[sortField as string];
+
+      if (sortField === "timestamp") {
+        return sortDir * (new Date(aVal).getTime() - new Date(bVal).getTime());
+      }
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortDir * (aVal - bVal);
+      }
+      return sortDir * String(aVal).localeCompare(String(bVal));
+    });
+
+    // Apply pagination
+    const limitNum = parseInt(limit as string);
+    const offsetNum = parseInt(offset as string);
+    const paginatedResults = results.slice(offsetNum, offsetNum + limitNum);
+
+    res.json({
+      success: true,
+      data: paginatedResults,
+      total: results.length,
+      limit: limitNum,
+      offset: offsetNum,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      data: [],
+      total: 0,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 });
+
+// Publish command to MQTT
+app.post("/api/command", async (req: Request, res: Response) => {
+  try {
+    const { command, safeId = "safe-001" } = req.body;
+
+    if (!command) {
+      return res.status(400).json({ success: false, error: "Command is required" });
+    }
+
+    mqttClient.publish(
+      MQTT_TOPICS.COMMAND,
+      JSON.stringify({ command, safeId, timestamp: new Date().toISOString() }),
+      { qos: 1 },
+      (error: Error | undefined) => {
+        if (error) {
+          res.status(500).json({ success: false, error: error.message });
+        } else {
+          res.json({ success: true, message: `Command '${command}' sent to ${safeId}` });
+        }
+      }
+    );
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Initialize and start server
+async function start() {
+  try {
+    // Initialize MQTT connection
+    initMQTT();
+
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`MQTT Broker: ${MQTT_BROKER_URL}`);
+      console.log(`InfluxDB: ${INFLUXDB_URL}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on("SIGINT", async () => {
+  console.log("Shutting down...");
+
+  if (mqttClient) {
+    mqttClient.end();
+  }
+
+  await writeApi.close();
+  process.exit(0);
+});
+
+start();

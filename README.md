@@ -1,36 +1,118 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SafeBox - IoT Smart Safe Monitoring System
+
+A full-stack IoT monitoring application for smart safes, featuring real-time sensor data visualization, MQTT messaging, and time-series data storage.
+
+## Architecture
+
+- **Frontend**: Next.js 15 with React and TailwindCSS
+- **Backend**: Express.js with TypeScript
+- **Message Broker**: Eclipse Mosquitto (MQTT)
+- **Database**: InfluxDB (Time-series database)
+- **Containerization**: Docker Compose
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+
+- pnpm
+- Docker and Docker Compose
+
+### Backend Setup
+
+1. Navigate to the backend directory:
+   ```bash
+   cd backend-db
+   ```
+
+2. Run the setup script:
+   ```bash
+   ./setup-db.sh
+   ```
+
+   This will:
+   - Start MQTT broker (Mosquitto) and InfluxDB using Docker
+   - Install dependencies
+   - Seed the database with sample data
+
+3. Start the backend server:
+   ```bash
+   pnpm dev
+   ```
+
+### Frontend Setup
+
+1. In the project root, install dependencies:
+   ```bash
+   pnpm install
+   ```
+
+2. Run the development server:
+   ```bash
+   pnpm dev
+   ```
+
+3. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Services
+
+| Service   | Port  | Description                    |
+|-----------|-------|--------------------------------|
+| Frontend  | 3000  | Next.js web application        |
+| Backend   | 3001  | Express.js API server          |
+| MQTT      | 1883  | Mosquitto MQTT broker          |
+| MQTT WS   | 9001  | MQTT over WebSocket            |
+| InfluxDB  | 8086  | Time-series database UI        |
+
+## MQTT Topics
+
+| Topic                    | Description              |
+|--------------------------|--------------------------|
+| `safebox/sensor-data`    | Sensor readings          |
+| `safebox/safe-status`    | Safe lock/unlock status  |
+| `safebox/rotation-data`  | Gyroscope/rotation data  |
+| `safebox/command`        | Commands to the device   |
+
+## API Endpoints
+
+| Method | Endpoint                   | Description                  |
+|--------|----------------------------|------------------------------|
+| GET    | `/api/health`              | Health check status          |
+| GET    | `/api/sensor-data`         | Get sensor logs              |
+| POST   | `/api/sensor-data`         | Submit sensor data           |
+| GET    | `/api/safe-status`         | Get current safe status      |
+| POST   | `/api/safe-status`         | Update safe status           |
+| GET    | `/api/rotation-data`       | Get rotation logs            |
+| GET    | `/api/rotation-data/latest`| Get latest rotation          |
+| POST   | `/api/rotation-data`       | Submit rotation data         |
+| GET    | `/api/charts`              | Get chart data               |
+| GET    | `/api/logs`                | Get event logs               |
+| POST   | `/api/command`             | Send command via MQTT        |
+
+## InfluxDB Access
+
+- URL: http://localhost:8086
+- Username: `admin`
+- Password: `adminpassword`
+- Organization: `safebox`
+- Bucket: `iot-data`
+
+## Docker Compose
+
+Start all services:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd backend-db
+docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Stop all services:
+```bash
+docker compose down
+```
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Next.js Documentation](https://nextjs.org/docs)
+- [InfluxDB Documentation](https://docs.influxdata.com/influxdb/v2/)
+- [MQTT.js Documentation](https://github.com/mqttjs/MQTT.js)
+- [Eclipse Mosquitto](https://mosquitto.org/)

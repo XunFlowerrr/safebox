@@ -1,17 +1,67 @@
 services:
+  # MQTT Broker - Eclipse Mosquitto
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: safebox-mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  # Time-series Database - InfluxDB
+  influxdb:
+    image: influxdb:2
+    container_name: safebox-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=safebox
+      - DOCKER_INFLUXDB_INIT_BUCKET=iot-data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=safebox-influxdb-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    networks:
+      - iot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend Service
   backend:
     build: .
+    container_name: safebox-backend
     ports:
       - "3001:3001"
     environment:
       - PORT=3001
-      - DATABASE_URL=file:./dev.db
-    volumes:
-      - ./prisma:/app/prisma
+      - MQTT_BROKER_URL=mqtt://mqtt:1883
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=safebox-influxdb-token
+      - INFLUXDB_ORG=safebox
+      - INFLUXDB_BUCKET=iot-data
+    depends_on:
+      mqtt:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
     networks:
       - iot-network
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/dashboard"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -19,3 +69,7 @@ services:
 networks:
   iot-network:
     driver: bridge
+
+volumes:
+  influxdb-data:
+  influxdb-config:
