@@ -7,7 +7,7 @@ services:
       - PORT=3001
       - DATABASE_URL=file:./dev.db
     volumes:
-      - backend_data:/app/prisma
+      - ./prisma:/app/prisma
     networks:
       - iot-network
     healthcheck:
@@ -15,9 +15,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  backend_data:
 
 networks:
   iot-network:

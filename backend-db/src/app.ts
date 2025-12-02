@@ -402,12 +402,14 @@ app.get("/api/logs", async (req: Request, res: Response) => {
       interface EventLogResponse {
         type: string;
         content: string;
+        timestamp: string;
       }
 
       const response: EventLogResponse[] = eventLogs.map(
-        (log: { type: string; content: string }) => ({
+        (log: { type: string; content: string; timestamp: Date }) => ({
           type: log.type,
           content: log.content,
+          timestamp: log.timestamp.toISOString(),
         })
       );
       return res.json(response);
@@ -524,6 +526,7 @@ app.get("/api/logs", async (req: Request, res: Response) => {
       .map((log) => ({
         type: log.type,
         content: log.content,
+        timestamp: log.timestamp.toISOString(),
       }));
 
     res.json(sortedLogs);
